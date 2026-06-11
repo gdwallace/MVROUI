@@ -64,9 +64,9 @@ const SOLVE_API = {
   method: "POST",
   operationId: "Solve",
   auth: "Authorization header",
-  acceptedResponse: "202 Accepted returns { id, resourceUrl }",
+  acceptedResponse: "200 OK returns a Solution; 202 Accepted returns { id, resourceUrl }",
   description:
-    "Upload a prepared Solve request JSON file, review or edit the body, and send it to the asynchronous Solve endpoint.",
+    "Upload a prepared Solve request JSON file, review or edit the body, and send it to the Solve endpoint. A 200 OK response can populate the result tables directly, while a 202 Accepted response returns an async operation token.",
 };
 
 const createSamplePayload = () => ({
@@ -692,8 +692,9 @@ function ResponsePanel({
         <p className="eyebrow">Response</p>
         <h2>Waiting for a request</h2>
         <p className="hint">
-          A successful async Solve call should return a token and resource URL
-          that can be polled for the eventual Solution.
+          A 200 OK Solve response should render the returned routes, route stops,
+          and unloaded stops in tables. A 202 Accepted response should return a
+          token and resource URL that can be polled for the eventual Solution.
         </p>
       </section>
     );

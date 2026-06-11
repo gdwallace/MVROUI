@@ -12,7 +12,8 @@ provided OpenAPI collection definition. It includes:
 - Drag-and-drop or browse-based JSON loading
 - Editable JSON review before sending the request
 - Request summaries for stops, routes, and notification subscriptions
-- Response summaries for accepted async operation tokens or returned solutions
+- Response handling for `200 OK` solutions and `202 Accepted` async operation
+  tokens
 - Result tables for returned routes, stops on routes, and unloaded stops
 
 ## Development
