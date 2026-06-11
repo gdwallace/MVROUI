@@ -19,6 +19,44 @@ type UploadedRequest = {
   loadedAt: string;
 };
 
+type RouteTableRow = {
+  routeKey: string;
+  routeId: string;
+  legs: number;
+  stops: number;
+  distance: string;
+  driveHours: string;
+  workHours: string;
+  cost: string;
+  violations: string;
+};
+
+type StopTableRow = {
+  routeKey: string;
+  routeId: string;
+  leg: string;
+  sequence: string;
+  stopKey: string;
+  orders: string;
+  arrival: string;
+  departure: string;
+  distance: string;
+  duration: string;
+  wait: string;
+  violations: string;
+};
+
+type UnloadedStopTableRow = {
+  stopKey: string;
+  orders: string;
+};
+
+type SolutionTableData = {
+  routes: RouteTableRow[];
+  stops: StopTableRow[];
+  unloadedStops: UnloadedStopTableRow[];
+};
+
 const SOLVE_API = {
   title: "Multi-Vehicle Routing API",
   server: "https://services.appian.trimblemaps.com",
@@ -48,6 +86,173 @@ const createSamplePayload = () => ({
 });
 
 const stringify = (value: unknown) => JSON.stringify(value, null, 2);
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const asRecord = (value: unknown) => (isRecord(value) ? value : null);
+
+const readNumber = (record: Record<string, unknown> | null, key: string) => {
+  const value = record?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+};
+
+const formatCell = (value: unknown) => {
+  if (value === undefined || value === null || value === "") {
+    return "-";
+  }
+
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return JSON.stringify(value);
+};
+
+const formatDateTime = (value: unknown) => {
+  if (typeof value !== "string" || !value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+};
+
+const joinList = (values: string[]) => (values.length > 0 ? values.join(", ") : "-");
+
+const collectOrders = (orders: unknown) => {
+  if (!Array.isArray(orders)) {
+    return "-";
+  }
+
+  return joinList(
+    orders.map((order) => {
+      const record = asRecord(order);
+      return formatCell(record?.id ?? record?.orderId ?? record?.key);
+    }),
+  );
+};
+
+const collectViolations = (violations: unknown) => {
+  if (!Array.isArray(violations)) {
+    return "-";
+  }
+
+  return joinList(
+    violations.map((violation) => {
+      const record = asRecord(violation);
+      return formatCell(record?.name ?? violation);
+    }),
+  );
+};
+
+const countStops = (route: Record<string, unknown>) => {
+  const legs = Array.isArray(route.legs) ? route.legs : [];
+  const legStops = legs.reduce((count, leg) => {
+    const legRecord = asRecord(leg);
+    return count + (Array.isArray(legRecord?.stops) ? legRecord.stops.length : 0);
+  }, 0);
+
+  if (legStops > 0) {
+    return legStops;
+  }
+
+  return Array.isArray(route.stops) ? route.stops.length : 0;
+};
+
+const buildSolutionTables = (body: unknown): SolutionTableData | null => {
+  const solution = asRecord(body);
+  const routes = Array.isArray(solution?.routes) ? solution.routes : null;
+  const unloadedStops = Array.isArray(solution?.unloadedStops)
+    ? solution.unloadedStops
+    : null;
+
+  if (!routes && !unloadedStops) {
+    return null;
+  }
+
+  const routeRows =
+    routes?.map((route) => {
+      const routeRecord = asRecord(route) ?? {};
+      const plan = asRecord(routeRecord.plan);
+      const statistics = asRecord(plan?.statistics);
+      const costs = asRecord(statistics?.costs);
+      const legs = Array.isArray(routeRecord.legs) ? routeRecord.legs : [];
+
+      return {
+        routeKey: formatCell(routeRecord.key ?? routeRecord.internalKey),
+        routeId: formatCell(routeRecord.routeId),
+        legs: legs.length,
+        stops: countStops(routeRecord),
+        distance: formatCell(readNumber(statistics, "distance")),
+        driveHours: formatCell(readNumber(statistics, "driveHours")),
+        workHours: formatCell(readNumber(statistics, "workHours")),
+        cost: formatCell(readNumber(costs, "total")),
+        violations: collectViolations(plan?.violations),
+      };
+    }) ?? [];
+
+  const stopRows =
+    routes?.flatMap((route) => {
+      const routeRecord = asRecord(route) ?? {};
+      const routeKey = formatCell(routeRecord.key ?? routeRecord.internalKey);
+      const routeId = formatCell(routeRecord.routeId);
+      const legs = Array.isArray(routeRecord.legs) ? routeRecord.legs : [];
+      const routeStops = Array.isArray(routeRecord.stops) ? routeRecord.stops : [];
+      const stopGroups =
+        legs.length > 0
+          ? legs.map((leg) => {
+              const legRecord = asRecord(leg) ?? {};
+              return {
+                leg: formatCell(legRecord.leg),
+                stops: Array.isArray(legRecord.stops) ? legRecord.stops : [],
+              };
+            })
+          : [{ leg: "-", stops: routeStops }];
+
+      return stopGroups.flatMap((group) =>
+        group.stops.map((stop) => {
+          const stopRecord = asRecord(stop) ?? {};
+          const plan = asRecord(stopRecord.plan);
+
+          return {
+            routeKey,
+            routeId,
+            leg: formatCell(stopRecord.leg ?? group.leg),
+            sequence: formatCell(stopRecord.sequence),
+            stopKey: formatCell(stopRecord.key ?? stopRecord.internalKey),
+            orders: collectOrders(stopRecord.orders),
+            arrival: formatDateTime(plan?.arrival),
+            departure: formatDateTime(plan?.departure),
+            distance: formatCell(readNumber(plan, "distance")),
+            duration: formatCell(readNumber(plan, "duration")),
+            wait: formatCell(readNumber(plan, "wait")),
+            violations: collectViolations(plan?.violations),
+          };
+        }),
+      );
+    }) ?? [];
+
+  const unloadedStopRows =
+    unloadedStops?.map((stop) => {
+      const stopRecord = asRecord(stop) ?? {};
+
+      return {
+        stopKey: formatCell(stopRecord.internalKey ?? stopRecord.key),
+        orders: collectOrders(stopRecord.orders),
+      };
+    }) ?? [];
+
+  return {
+    routes: routeRows,
+    stops: stopRows,
+    unloadedStops: unloadedStopRows,
+  };
+};
 
 const formatBytes = (bytes: number) => {
   if (bytes < 1024) {
@@ -524,6 +729,7 @@ function ResponsePanel({
         <span className="badge">{result.elapsedMs} ms</span>
       </div>
       <ResponseSummary body={result.body} />
+      <SolutionTables body={result.body} />
       <pre className="response-body">{stringify(result.body)}</pre>
     </section>
   );
@@ -571,6 +777,128 @@ function ResponseSummary({ body }: { body: unknown }) {
   }
 
   return null;
+}
+
+function SolutionTables({ body }: { body: unknown }) {
+  const tables = buildSolutionTables(body);
+
+  if (!tables) {
+    return null;
+  }
+
+  return (
+    <div className="solution-tables">
+      <DataTable
+        emptyMessage="No routes were returned."
+        title="Routes"
+        columns={[
+          "Route key",
+          "Route ID",
+          "Legs",
+          "Stops",
+          "Distance",
+          "Drive hours",
+          "Work hours",
+          "Total cost",
+          "Violations",
+        ]}
+        rows={tables.routes.map((route) => [
+          route.routeKey,
+          route.routeId,
+          route.legs,
+          route.stops,
+          route.distance,
+          route.driveHours,
+          route.workHours,
+          route.cost,
+          route.violations,
+        ])}
+      />
+
+      <DataTable
+        emptyMessage="No routed stops were returned."
+        title="Stops on routes"
+        columns={[
+          "Route",
+          "Leg",
+          "Sequence",
+          "Stop key",
+          "Orders",
+          "Arrival",
+          "Departure",
+          "Distance",
+          "Duration",
+          "Wait",
+          "Violations",
+        ]}
+        rows={tables.stops.map((stop) => [
+          stop.routeId !== "-" ? stop.routeId : stop.routeKey,
+          stop.leg,
+          stop.sequence,
+          stop.stopKey,
+          stop.orders,
+          stop.arrival,
+          stop.departure,
+          stop.distance,
+          stop.duration,
+          stop.wait,
+          stop.violations,
+        ])}
+      />
+
+      <DataTable
+        emptyMessage="No unloaded stops were returned."
+        title="Unloaded stops"
+        columns={["Stop key", "Orders"]}
+        rows={tables.unloadedStops.map((stop) => [stop.stopKey, stop.orders])}
+      />
+    </div>
+  );
+}
+
+function DataTable({
+  title,
+  columns,
+  rows,
+  emptyMessage,
+}: {
+  title: string;
+  columns: string[];
+  rows: Array<Array<string | number>>;
+  emptyMessage: string;
+}) {
+  return (
+    <section className="table-card">
+      <div className="table-card-heading">
+        <h3>{title}</h3>
+        <span>{rows.length}</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="empty-table">{emptyMessage}</p>
+      ) : (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                {columns.map((column) => (
+                  <th key={column}>{column}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr key={`${title}-${rowIndex}`}>
+                  {row.map((cell, cellIndex) => (
+                    <td key={`${title}-${rowIndex}-${cellIndex}`}>{cell}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
 }
 
 export default App;

@@ -13,6 +13,7 @@ provided OpenAPI collection definition. It includes:
 - Editable JSON review before sending the request
 - Request summaries for stops, routes, and notification subscriptions
 - Response summaries for accepted async operation tokens or returned solutions
+- Result tables for returned routes, stops on routes, and unloaded stops
 
 ## Development
 
