@@ -2,7 +2,7 @@ import { ChangeEvent, DragEvent, FormEvent, useMemo, useState } from "react";
 
 type SolveSettings = {
   baseUrl: string;
-  bearerToken: string;
+  apiKey: string;
 };
 
 type ApiResult = {
@@ -25,7 +25,7 @@ const SOLVE_API = {
   path: "/routingoptimization/v2/solve",
   method: "POST",
   operationId: "Solve",
-  auth: "JWT bearer token",
+  auth: "Authorization header",
   acceptedResponse: "202 Accepted returns { id, resourceUrl }",
   description:
     "Upload a prepared Solve request JSON file, review or edit the body, and send it to the asynchronous Solve endpoint.",
@@ -64,7 +64,7 @@ const formatBytes = (bytes: number) => {
 function App() {
   const [settings, setSettings] = useState<SolveSettings>({
     baseUrl: SOLVE_API.server,
-    bearerToken: "",
+    apiKey: "",
   });
   const [payloadText, setPayloadText] = useState("");
   const [uploadedRequest, setUploadedRequest] = useState<UploadedRequest | null>(
@@ -225,8 +225,8 @@ function App() {
         method: SOLVE_API.method,
         headers: {
           "Content-Type": "application/json",
-          ...(settings.bearerToken
-            ? { Authorization: `Bearer ${settings.bearerToken}` }
+          ...(settings.apiKey
+            ? { Authorization: settings.apiKey }
             : {}),
         },
         body: JSON.stringify(requestBody),
@@ -295,22 +295,24 @@ function App() {
                 />
               </label>
               <label>
-                Bearer token
+                API key
                 <input
                   type="password"
-                  value={settings.bearerToken}
+                  value={settings.apiKey}
                   onChange={(event) =>
                     setSettings((current) => ({
                       ...current,
-                      bearerToken: event.target.value,
+                      apiKey: event.target.value,
                     }))
                   }
-                  placeholder="Paste JWT when you are ready to call the API"
+                  placeholder="Value sent as the Authorization header"
                 />
               </label>
             </div>
             <p className="endpoint-preview">
               Request URL: <code>{endpointUrl}</code>
+              <br />
+              Header: <code>Authorization: &lt;entered API key&gt;</code>
             </p>
           </section>
 
