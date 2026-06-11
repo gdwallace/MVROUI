@@ -282,6 +282,12 @@ input:disabled {
   word-break: break-all;
 }
 
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .primary,
 .secondary,
 .ghost {
@@ -328,9 +334,97 @@ input:disabled {
   white-space: pre;
 }
 
+.json-editor::placeholder {
+  color: rgba(220, 230, 255, 0.48);
+}
+
 .json-editor.invalid {
   border-color: #db4054;
   box-shadow: 0 0 0 4px rgba(219, 64, 84, 0.14);
+}
+
+.upload-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.42fr);
+}
+
+.upload-dropzone {
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px;
+  border: 2px dashed #9fb1d1;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top, rgba(71, 121, 230, 0.12), transparent 36%),
+    #f8fbff;
+  color: #284062;
+  text-align: center;
+}
+
+.upload-dropzone.active {
+  border-color: #275fe8;
+  background: #eef5ff;
+  box-shadow: 0 0 0 4px rgba(39, 95, 232, 0.12);
+}
+
+.upload-dropzone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.upload-dropzone span {
+  color: #1a2440;
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
+.upload-dropzone small {
+  max-width: 620px;
+  color: #66748f;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.upload-details {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1.4fr;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.upload-details div {
+  min-width: 0;
+  padding: 13px;
+  border-radius: 14px;
+  background: #f2f6fd;
+}
+
+.upload-details span {
+  display: block;
+  color: #66748f;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.upload-details strong {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-top: 5px;
+  color: #182034;
+}
+
+.request-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 16px 0 0;
 }
 
 .notice {
@@ -406,6 +500,18 @@ input:disabled {
   line-height: 1.55;
 }
 
+.schema-snippet {
+  overflow: auto;
+  margin: 16px 0 0;
+  padding: 14px;
+  border-radius: 14px;
+  background: #121a2e;
+  color: #dce6ff;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
 @media (max-width: 1180px) {
   .hero,
   .layout {
@@ -440,7 +546,8 @@ input:disabled {
   .grid.two,
   .grid.three,
   .grid.four,
-  .summary-grid {
+  .summary-grid,
+  .upload-details {
     grid-template-columns: 1fr;
   }
 

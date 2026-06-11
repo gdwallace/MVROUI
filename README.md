@@ -8,13 +8,10 @@ The current app focuses on `POST /routingoptimization/v2/solve` from the
 provided OpenAPI collection definition. It includes:
 
 - API target and bearer token inputs
-- Async notification options (`poll`, `webhook`, or `push`)
-- Solution config controls for dispatch date, distance units, and adjustments
-- Available route configuration controls for origin, costs, capacity, and work
-  rules
-- Unloaded stop/order controls for coordinates, volume, service time, and time
-  windows
-- Editable generated JSON for advanced request fields
+- Upload support for a prepared Solve request JSON file
+- Drag-and-drop or browse-based JSON loading
+- Editable JSON review before sending the request
+- Request summaries for stops, routes, and notification subscriptions
 - Response summaries for accepted async operation tokens or returned solutions
 
 ## Development
