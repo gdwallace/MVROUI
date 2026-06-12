@@ -92,36 +92,53 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const asRecord = (value: unknown) => (isRecord(value) ? value : null);
 
-const findSolutionRecord = (body: unknown) => {
-  const record = asRecord(body);
+const hasSolutionFields = (value: unknown) => {
+  const record = asRecord(value);
+  return Boolean(
+    record && (Array.isArray(record.routes) || Array.isArray(record.unloadedStops)),
+  );
+};
 
-  if (!record) {
+const findSolutionRecord = (body: unknown) => {
+  const queue = [body];
+  const visited = new Set<unknown>();
+  const wrapperKeys = ["solution", "response", "result", "data", "body", "value"];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const record = asRecord(current);
+
+    if (!record || visited.has(record)) {
+      continue;
+    }
+
+    if (hasSolutionFields(record)) {
+      return record;
+    }
+
+    visited.add(record);
+    wrapperKeys.forEach((key) => {
+      if (isRecord(record[key])) {
+        queue.push(record[key]);
+      }
+    });
+  }
+
+  return null;
+};
+
+const parseResponseBody = async (response: Response) => {
+  const text = await response.text();
+
+  if (!text) {
     return null;
   }
 
-  if (Array.isArray(record.routes) || Array.isArray(record.unloadedStops)) {
-    return record;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
   }
-
-  const nestedSolution = asRecord(record.solution);
-  if (
-    nestedSolution &&
-    (Array.isArray(nestedSolution.routes) ||
-      Array.isArray(nestedSolution.unloadedStops))
-  ) {
-    return nestedSolution;
-  }
-
-  const nestedResponse = asRecord(record.response);
-  if (
-    nestedResponse &&
-    (Array.isArray(nestedResponse.routes) ||
-      Array.isArray(nestedResponse.unloadedStops))
-  ) {
-    return nestedResponse;
-  }
-
-  return record;
 };
 
 const readNumber = (record: Record<string, unknown> | null, key: string) => {
@@ -469,10 +486,7 @@ function App() {
         body: JSON.stringify(requestBody),
       });
 
-      const contentType = response.headers.get("content-type") ?? "";
-      const body = contentType.includes("application/json")
-        ? await response.json()
-        : await response.text();
+      const body = await parseResponseBody(response);
 
       setResult({
         ok: response.status === 200,
@@ -809,7 +823,12 @@ function SolutionTables({ body }: { body: unknown }) {
   const tables = buildSolutionTables(body);
 
   if (!tables) {
-    return null;
+    return (
+      <div className="notice">
+        The 200 OK response was received, but no routes or unloaded stops were
+        found in the response JSON.
+      </div>
+    );
   }
 
   return (
