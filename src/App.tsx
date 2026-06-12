@@ -102,7 +102,15 @@ const hasSolutionFields = (value: unknown) => {
 const findSolutionRecord = (body: unknown) => {
   const queue = [body];
   const visited = new Set<unknown>();
-  const wrapperKeys = ["solution", "response", "result", "data", "body", "value"];
+  const wrapperKeys = [
+    "solution",
+    "response",
+    "result",
+    "data",
+    "body",
+    "value",
+    "payload",
+  ];
 
   while (queue.length > 0) {
     const current = queue.shift();
@@ -139,6 +147,69 @@ const parseResponseBody = async (response: Response) => {
   } catch {
     return text;
   }
+};
+
+const sleep = (milliseconds: number) =>
+  new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+const getPollingUrl = (body: unknown, baseUrl: string) => {
+  const record = asRecord(body);
+  const payload = asRecord(record?.payload);
+  const resourceUrl =
+    record?.resourceUrl ??
+    record?.url ??
+    record?.href ??
+    payload?.resourceUrl ??
+    payload?.url ??
+    payload?.href;
+
+  if (typeof resourceUrl !== "string" || !resourceUrl) {
+    return null;
+  }
+
+  return new URL(resourceUrl, baseUrl).toString();
+};
+
+const pollForSolution = async (
+  pollingUrl: string,
+  apiKey: string,
+  startedAt: number,
+): Promise<ApiResult> => {
+  for (let attempt = 1; attempt <= 60; attempt += 1) {
+    await sleep(attempt === 1 ? 1000 : 3000);
+
+    const response = await fetch(pollingUrl, {
+      headers: apiKey ? { Authorization: apiKey } : {},
+    });
+    const body = await parseResponseBody(response);
+
+    if (response.status === 200 && findSolutionRecord(body)) {
+      return {
+        ok: true,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        body,
+      };
+    }
+
+    const bodyStatus = asRecord(body)?.status;
+    if (
+      response.status >= 400 ||
+      bodyStatus === "Failed" ||
+      bodyStatus === "Cancelled"
+    ) {
+      return {
+        ok: false,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        body,
+      };
+    }
+  }
+
+  throw new Error("Timed out waiting for the 200 OK Solve solution response.");
 };
 
 const readNumber = (record: Record<string, unknown> | null, key: string) => {
@@ -487,6 +558,15 @@ function App() {
       });
 
       const body = await parseResponseBody(response);
+      const pollingUrl =
+        response.status === 202 ? getPollingUrl(body, settings.baseUrl) : null;
+
+      if (pollingUrl) {
+        setResult(
+          await pollForSolution(pollingUrl, settings.apiKey, startedAt),
+        );
+        return;
+      }
 
       setResult({
         ok: response.status === 200,
