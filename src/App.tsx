@@ -55,10 +55,31 @@ type UnloadedStopTableRow = {
   orders: string;
 };
 
+type SuggestionTableRow = {
+  stopSort: number;
+  routeSort: number;
+  legSort: number;
+  sequenceSort: number;
+  stopKey: string;
+  route: string;
+  leg: string;
+  sequence: string;
+  arrival: string;
+  cost: string;
+  miles: string;
+  workTime: string;
+  stops: string;
+  violations: string;
+};
+
 type SolutionTableData = {
   routes: RouteTableRow[];
   stops: StopTableRow[];
   unloadedStops: UnloadedStopTableRow[];
+};
+
+type SuggestionTableData = {
+  suggestions: SuggestionTableRow[];
 };
 
 const SOLVE_API = {
@@ -89,6 +110,11 @@ const createSamplePayload = () => ({
   },
 });
 
+const SUGGEST_API = {
+  path: "/routingoptimization/v2/suggest",
+  method: "POST",
+};
+
 const stringify = (value: unknown) => JSON.stringify(value, null, 2);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -100,6 +126,20 @@ const hasSolutionFields = (value: unknown) => {
   const record = asRecord(value);
   return Boolean(
     record && (Array.isArray(record.routes) || Array.isArray(record.unloadedStops)),
+  );
+};
+
+const hasSuggestionFields = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasSuggestionFields(item));
+  }
+
+  const record = asRecord(value);
+  return Boolean(
+    record &&
+      (Array.isArray(record.candidates) ||
+        Array.isArray(record.suggestions) ||
+        Array.isArray(record.results)),
   );
 };
 
@@ -137,6 +177,55 @@ const findSolutionRecord = (body: unknown) => {
   }
 
   return null;
+};
+
+const findSuggestionRecords = (body: unknown): Array<Record<string, unknown>> => {
+  const queue = [body];
+  const visited = new Set<unknown>();
+  const wrapperKeys = [
+    "suggestions",
+    "results",
+    "response",
+    "result",
+    "data",
+    "body",
+    "value",
+    "payload",
+  ];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+
+    if (Array.isArray(current)) {
+      const records = current.filter(isRecord);
+      if (records.some((record) => Array.isArray(record.candidates))) {
+        return records;
+      }
+
+      queue.push(...current);
+      continue;
+    }
+
+    const record = asRecord(current);
+
+    if (!record || visited.has(record)) {
+      continue;
+    }
+
+    if (Array.isArray(record.candidates)) {
+      return [record];
+    }
+
+    visited.add(record);
+    wrapperKeys.forEach((key) => {
+      const value = record[key];
+      if (isRecord(value) || Array.isArray(value)) {
+        queue.push(value);
+      }
+    });
+  }
+
+  return [];
 };
 
 const parseResponseBody = async (response: Response) => {
@@ -215,6 +304,51 @@ const pollForSolution = async (
 
   throw new Error("Timed out waiting for the 200 OK Solve solution response.");
 };
+
+const pollForSuggestions = async (
+  pollingUrl: string,
+  apiKey: string,
+  startedAt: number,
+): Promise<ApiResult> => {
+  for (let attempt = 1; attempt <= 60; attempt += 1) {
+    await sleep(attempt === 1 ? 1000 : 3000);
+
+    const response = await fetch(pollingUrl, {
+      headers: apiKey ? { Authorization: apiKey } : {},
+    });
+    const body = await parseResponseBody(response);
+
+    if (response.status === 200 && findSuggestionRecords(body).length > 0) {
+      return {
+        ok: true,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        body,
+      };
+    }
+
+    const bodyStatus = asRecord(body)?.status;
+    if (
+      response.status >= 400 ||
+      bodyStatus === "Failed" ||
+      bodyStatus === "Cancelled"
+    ) {
+      return {
+        ok: false,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        body,
+      };
+    }
+  }
+
+  throw new Error("Timed out waiting for the 200 OK Suggest response.");
+};
+
+const cloneJson = <Value,>(value: Value): Value =>
+  JSON.parse(JSON.stringify(value)) as Value;
 
 const readNumber = (record: Record<string, unknown> | null, key: string) => {
   const value = record?.[key];
@@ -318,6 +452,133 @@ const compareStopRows = (left: StopTableRow, right: StopTableRow) =>
   left.legSort - right.legSort ||
   left.sequenceSort - right.sequenceSort ||
   left.stopKey.localeCompare(right.stopKey);
+
+const getStopKey = (stop: unknown) => {
+  const record = asRecord(stop);
+  return record?.internalKey ?? record?.key;
+};
+
+const makeStopKey = (stop: unknown) => {
+  const value = getStopKey(stop);
+  return value === undefined || value === null ? "" : String(value);
+};
+
+const getArray = (record: Record<string, unknown> | null, key: string) =>
+  Array.isArray(record?.[key]) ? record[key] : [];
+
+const buildSuggestPayload = (solveRequestBody: unknown, solveBody: unknown) => {
+  const originalRequest = asRecord(solveRequestBody);
+  const originalProblem = asRecord(originalRequest?.request);
+  const solution = findSolutionRecord(solveBody);
+
+  if (!originalProblem || !solution) {
+    throw new Error("Run Solve first so Suggest can use the request and solution.");
+  }
+
+  const originalStops = getArray(originalProblem, "unloadedStops");
+  const availableRoutes = getArray(originalProblem, "availableRoutes");
+  const existingRoutes = getArray(originalProblem, "routes");
+  const solutionRoutes = getArray(solution, "routes");
+  const solutionUnloadedStops = getArray(solution, "unloadedStops");
+  const stopByKey = new Map(
+    originalStops
+      .filter((stop) => makeStopKey(stop))
+      .map((stop) => [makeStopKey(stop), stop]),
+  );
+  const availableRouteByRouteId = new Map(
+    availableRoutes.map((route, index) => {
+      const record = asRecord(route);
+      return [String(record?.routeId ?? index), route];
+    }),
+  );
+  const existingRouteByKey = new Map(
+    existingRoutes.map((route) => {
+      const record = asRecord(route);
+      return [String(record?.internalKey ?? record?.key ?? ""), route];
+    }),
+  );
+  const stopKeys = solutionUnloadedStops
+    .map(getStopKey)
+    .filter((key) => key !== undefined && key !== null);
+
+  if (stopKeys.length === 0) {
+    throw new Error("There are no unloaded stops in the Solve response to suggest.");
+  }
+
+  const suggestRoutes = solutionRoutes.map((route, routeIndex) => {
+    const routeRecord = asRecord(route) ?? {};
+    const routeKey = routeRecord.key ?? routeRecord.internalKey ?? routeIndex + 1;
+    const routeId = routeRecord.routeId;
+    const sourceRoute = asRecord(existingRouteByKey.get(String(routeKey)));
+    const sourceConfig =
+      sourceRoute?.config ??
+      availableRouteByRouteId.get(String(routeId ?? routeIndex)) ??
+      availableRoutes[routeIndex] ??
+      {};
+    const legs = getArray(routeRecord, "legs");
+    const directStops = getArray(routeRecord, "stops");
+    const stopGroups =
+      legs.length > 0
+        ? legs.map((leg) => {
+            const legRecord = asRecord(leg);
+            return {
+              leg: legRecord?.leg,
+              stops: getArray(legRecord, "stops"),
+            };
+          })
+        : [{ leg: undefined, stops: directStops }];
+    const stops = stopGroups.flatMap((group) =>
+      group.stops
+        .map((stop) => {
+          const stopRecord = asRecord(stop);
+          const originalStop = stopByKey.get(String(stopRecord?.key ?? stopRecord?.internalKey));
+
+          if (!originalStop) {
+            return null;
+          }
+
+          return {
+            ...cloneJson(originalStop),
+            leg: stopRecord?.leg ?? group.leg,
+            sequence: stopRecord?.sequence,
+          };
+        })
+        .filter(isRecord),
+    );
+
+    return {
+      internalKey: routeKey,
+      stops,
+      config: cloneJson(sourceConfig),
+    };
+  });
+  const suggestUnloadedStops = stopKeys
+    .map((key) => stopByKey.get(String(key)))
+    .filter(isRecord)
+    .map(cloneJson);
+
+  if (suggestUnloadedStops.length === 0) {
+    throw new Error(
+      "The unloaded stops from the Solve response were not found in the uploaded request JSON.",
+    );
+  }
+
+  return {
+    notificationOptions: originalRequest?.notificationOptions ?? {
+      subscriptions: [{ type: "polling" }],
+    },
+    request: {
+      problem: {
+        routes: suggestRoutes,
+        unloadedStops: suggestUnloadedStops,
+        availableRoutes: [],
+        config: cloneJson(originalProblem.config ?? {}),
+        resourceSchedules: cloneJson(originalProblem.resourceSchedules ?? []),
+      },
+      stopKeys,
+    },
+  };
+};
 
 const buildSolutionTables = (body: unknown): SolutionTableData | null => {
   const solution = findSolutionRecord(body);
@@ -423,6 +684,65 @@ const buildSolutionTables = (body: unknown): SolutionTableData | null => {
   };
 };
 
+const compareSuggestionRows = (
+  left: SuggestionTableRow,
+  right: SuggestionTableRow,
+) =>
+  left.stopSort - right.stopSort ||
+  left.routeSort - right.routeSort ||
+  left.legSort - right.legSort ||
+  left.sequenceSort - right.sequenceSort;
+
+const buildSuggestionTables = (body: unknown): SuggestionTableData | null => {
+  const suggestions = findSuggestionRecords(body);
+
+  if (suggestions.length === 0) {
+    return null;
+  }
+
+  const rows = suggestions
+    .flatMap((suggestion) => {
+      const stopKey = suggestion.stopKey ?? suggestion.internalKey ?? suggestion.key;
+      const candidates = getArray(suggestion, "candidates");
+
+      return candidates.map((candidate) => {
+        const candidateRecord = asRecord(candidate) ?? {};
+        const statistics = asRecord(candidateRecord.statistics);
+        const route =
+          candidateRecord.routeName ??
+          candidateRecord.routeId ??
+          candidateRecord.routeNumber ??
+          candidateRecord.routeKey;
+        const routeSort = toSortNumber(
+          candidateRecord.routeNumber ?? candidateRecord.routeName,
+          toSortNumber(candidateRecord.routeKey, Number.MAX_SAFE_INTEGER),
+        );
+
+        return {
+          stopSort: toSortNumber(stopKey, Number.MAX_SAFE_INTEGER),
+          routeSort,
+          legSort: toSortNumber(candidateRecord.leg, 0),
+          sequenceSort: toSortNumber(candidateRecord.sequence, 0),
+          stopKey: formatCell(stopKey),
+          route: formatCell(route),
+          leg: formatCell(candidateRecord.leg),
+          sequence: formatCell(candidateRecord.sequence),
+          arrival: formatDateTime(candidateRecord.arrival),
+          cost: formatCell(statistics?.cost),
+          miles: formatCell(statistics?.miles),
+          workTime: formatCell(statistics?.workTime),
+          stops: formatCell(statistics?.stops),
+          violations: collectViolations(statistics?.violations),
+        };
+      });
+    })
+    .sort(compareSuggestionRows);
+
+  return {
+    suggestions: rows,
+  };
+};
+
 const formatBytes = (bytes: number) => {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -446,9 +766,12 @@ function App() {
   );
   const [copyLabel, setCopyLabel] = useState("Copy JSON");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSuggesting, setIsSuggesting] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const [result, setResult] = useState<ApiResult | null>(null);
+  const [suggestResult, setSuggestResult] = useState<ApiResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
 
   const payloadParseError = useMemo(() => {
     if (!payloadText.trim()) {
@@ -501,10 +824,26 @@ function App() {
   }, [payloadParseError, payloadText]);
 
   const endpointUrl = `${settings.baseUrl.replace(/\/$/, "")}${SOLVE_API.path}`;
+  const solvedSolution =
+    result?.status === 200 ? findSolutionRecord(result.body) : null;
+  const solvedUnloadedStopCount = Array.isArray(solvedSolution?.unloadedStops)
+    ? solvedSolution.unloadedStops.length
+    : 0;
+  const suggestUnavailableReason = !result?.body
+    ? "Run Solve before running Suggest."
+    : result.status !== 200
+      ? "Suggest needs the final 200 OK Solve response."
+      : solvedUnloadedStopCount === 0
+        ? "There are no unloaded stops in the Solve response."
+        : payloadParseError
+          ? "Fix the uploaded Solve request JSON before running Suggest."
+          : null;
 
   const loadRequestFile = async (file: File) => {
     setError(null);
     setResult(null);
+    setSuggestError(null);
+    setSuggestResult(null);
 
     if (!file.name.toLowerCase().endsWith(".json") && file.type !== "application/json") {
       setError("Choose a .json file containing the Solve request body.");
@@ -560,7 +899,9 @@ function App() {
     setPayloadText("");
     setUploadedRequest(null);
     setResult(null);
+    setSuggestResult(null);
     setError(null);
+    setSuggestError(null);
   };
 
   const loadSamplePayload = () => {
@@ -571,13 +912,17 @@ function App() {
       loadedAt: new Date().toLocaleString(),
     });
     setResult(null);
+    setSuggestResult(null);
     setError(null);
+    setSuggestError(null);
   };
 
   const submitSolve = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setResult(null);
+    setSuggestError(null);
+    setSuggestResult(null);
 
     let requestBody: unknown;
     try {
@@ -632,6 +977,72 @@ function App() {
       );
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const runSuggest = async () => {
+    setSuggestError(null);
+    setSuggestResult(null);
+
+    let solveRequestBody: unknown;
+    try {
+      solveRequestBody = JSON.parse(payloadText);
+    } catch (parseError) {
+      setSuggestError(
+        parseError instanceof Error
+          ? `Fix the request JSON before running Suggest: ${parseError.message}`
+          : "Fix the request JSON before running Suggest.",
+      );
+      return;
+    }
+
+    if (!result?.body) {
+      setSuggestError("Run Solve before running Suggest.");
+      return;
+    }
+
+    setIsSuggesting(true);
+    const startedAt = performance.now();
+
+    try {
+      const suggestPayload = buildSuggestPayload(solveRequestBody, result.body);
+      const response = await fetch(
+        `${settings.baseUrl.replace(/\/$/, "")}${SUGGEST_API.path}`,
+        {
+          method: SUGGEST_API.method,
+          headers: {
+            "Content-Type": "application/json",
+            ...(settings.apiKey ? { Authorization: settings.apiKey } : {}),
+          },
+          body: JSON.stringify(suggestPayload),
+        },
+      );
+      const body = await parseResponseBody(response);
+      const pollingUrl =
+        response.status === 202 ? getPollingUrl(body, settings.baseUrl) : null;
+
+      if (pollingUrl) {
+        setSuggestResult(
+          await pollForSuggestions(pollingUrl, settings.apiKey, startedAt),
+        );
+        return;
+      }
+
+      setSuggestResult({
+        ok: response.status === 200,
+        status: response.status,
+        statusText: response.statusText,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        body,
+      });
+    } catch (suggestError) {
+      setSuggestError(
+        suggestError instanceof Error
+          ? suggestError.message
+          : "Unable to run Suggest.",
+      );
+    } finally {
+      setIsSuggesting(false);
     }
   };
 
@@ -819,7 +1230,16 @@ function App() {
         </div>
 
         <aside className="sidecar">
-          <ResponsePanel error={error} result={result} />
+          <ResponsePanel
+            canRunSuggest={!suggestUnavailableReason}
+            error={error}
+            isSuggesting={isSuggesting}
+            onRunSuggest={runSuggest}
+            result={result}
+            suggestError={suggestError}
+            suggestResult={suggestResult}
+            suggestUnavailableReason={suggestUnavailableReason}
+          />
         </aside>
       </form>
     </main>
@@ -827,11 +1247,23 @@ function App() {
 }
 
 function ResponsePanel({
+  canRunSuggest,
   error,
+  isSuggesting,
+  onRunSuggest,
   result,
+  suggestError,
+  suggestResult,
+  suggestUnavailableReason,
 }: {
+  canRunSuggest: boolean;
   error: string | null;
+  isSuggesting: boolean;
+  onRunSuggest: () => void;
   result: ApiResult | null;
+  suggestError: string | null;
+  suggestResult: ApiResult | null;
+  suggestUnavailableReason: string | null;
 }) {
   if (!error && !result) {
     return (
@@ -879,6 +1311,14 @@ function ResponsePanel({
         <>
           <ResponseSummary body={result.body} />
           <SolutionTables body={result.body} />
+          <SuggestAction
+            canRunSuggest={canRunSuggest}
+            isSuggesting={isSuggesting}
+            onRunSuggest={onRunSuggest}
+            suggestError={suggestError}
+            suggestResult={suggestResult}
+            suggestUnavailableReason={suggestUnavailableReason}
+          />
         </>
       ) : (
         <p className="error-text">
@@ -997,6 +1437,120 @@ function SolutionTables({ body }: { body: unknown }) {
         title="Unloaded stops"
         columns={["Stop key", "Orders"]}
         rows={tables.unloadedStops.map((stop) => [stop.stopKey, stop.orders])}
+      />
+    </div>
+  );
+}
+
+function SuggestAction({
+  canRunSuggest,
+  isSuggesting,
+  onRunSuggest,
+  suggestError,
+  suggestResult,
+  suggestUnavailableReason,
+}: {
+  canRunSuggest: boolean;
+  isSuggesting: boolean;
+  onRunSuggest: () => void;
+  suggestError: string | null;
+  suggestResult: ApiResult | null;
+  suggestUnavailableReason: string | null;
+}) {
+  return (
+    <section className="suggest-section">
+      <div className="suggest-actions">
+        <div>
+          <p className="eyebrow">Suggest API</p>
+          <h3>Suggest routes for unloaded stops</h3>
+          <p className="hint">
+            Builds a Suggest request from the uploaded Solve request and the
+            unloaded stops returned in the Solve response.
+          </p>
+        </div>
+        <button
+          className="secondary"
+          disabled={!canRunSuggest || isSuggesting}
+          onClick={onRunSuggest}
+          type="button"
+        >
+          {isSuggesting ? "Running Suggest..." : "Run Suggest"}
+        </button>
+      </div>
+
+      {suggestUnavailableReason && (
+        <p className="hint">{suggestUnavailableReason}</p>
+      )}
+
+      {suggestError && <p className="error-text">{suggestError}</p>}
+
+      {suggestResult && (
+        <div className={suggestResult.ok ? "suggest-result" : "suggest-result error-panel"}>
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Suggest response</p>
+              <h2>
+                {suggestResult.status}{" "}
+                {suggestResult.statusText || (suggestResult.ok ? "OK" : "Error")}
+              </h2>
+            </div>
+            <span className="badge">{suggestResult.elapsedMs} ms</span>
+          </div>
+          {suggestResult.status === 200 ? (
+            <SuggestionTables body={suggestResult.body} />
+          ) : (
+            <p className="error-text">
+              Suggest candidates require a final 200 OK response.
+            </p>
+          )}
+          <pre className="response-body">{stringify(suggestResult.body)}</pre>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SuggestionTables({ body }: { body: unknown }) {
+  const tables = buildSuggestionTables(body);
+
+  if (!tables) {
+    return (
+      <div className="notice">
+        The Suggest response was received, but no route candidates were found in
+        the response JSON.
+      </div>
+    );
+  }
+
+  return (
+    <div className="solution-tables">
+      <DataTable
+        emptyMessage="No suggestion candidates were returned."
+        title="Suggested routes"
+        columns={[
+          "Stop key",
+          "Route",
+          "Leg",
+          "Sequence",
+          "Arrival",
+          "Cost",
+          "Miles",
+          "Work time",
+          "Stops",
+          "Violations",
+        ]}
+        rows={tables.suggestions.map((suggestion) => [
+          suggestion.stopKey,
+          suggestion.route,
+          suggestion.leg,
+          suggestion.sequence,
+          suggestion.arrival,
+          suggestion.cost,
+          suggestion.miles,
+          suggestion.workTime,
+          suggestion.stops,
+          suggestion.violations,
+        ])}
       />
     </div>
   );

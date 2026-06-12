@@ -16,6 +16,8 @@ provided OpenAPI collection definition. It includes:
 - Automatic polling when the API initially returns a polling URL
 - Result tables populated from returned response JSON for routes, stops on
   routes, and unloaded stops
+- Suggest API action for unloaded stops returned by Solve
+- Suggestion candidate table for possible routes, legs, and sequences
 
 ## Development
 

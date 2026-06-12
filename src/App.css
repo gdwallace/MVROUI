@@ -463,6 +463,35 @@ input:disabled {
   margin: 16px 0;
 }
 
+.suggest-section {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #dbe3f1;
+}
+
+.suggest-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.suggest-actions h3 {
+  margin: 0;
+  color: #1a2440;
+  font-size: 1rem;
+}
+
+.suggest-actions .hint {
+  margin: 8px 0 0;
+}
+
+.suggest-result {
+  padding-top: 14px;
+}
+
 .table-card {
   overflow: hidden;
   border: 1px solid #dbe3f1;
@@ -624,7 +653,8 @@ tbody tr:last-child td {
   }
 
   .panel-heading,
-  .subpanel-heading {
+  .subpanel-heading,
+  .suggest-actions {
     align-items: flex-start;
     flex-direction: column;
   }
