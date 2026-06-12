@@ -1238,9 +1238,11 @@ function App() {
               {isSubmitting ? "Sending Solve request..." : "Send uploaded Solve request"}
             </button>
           </section>
-        </div>
 
-        <aside className="sidecar">
+          <div className="results-separator" aria-hidden="true">
+            <span>Solve results</span>
+          </div>
+
           <ResponsePanel
             canRunSuggest={!suggestUnavailableReason}
             error={error}
@@ -1251,7 +1253,7 @@ function App() {
             suggestResult={suggestResult}
             suggestUnavailableReason={suggestUnavailableReason}
           />
-        </aside>
+        </div>
       </form>
     </main>
   );

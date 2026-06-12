@@ -344,7 +344,31 @@ input:disabled {
 }
 
 .upload-layout {
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.42fr);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.results-separator {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #4667b1;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.results-separator::before,
+.results-separator::after {
+  content: "";
+  height: 4px;
+  flex: 1;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(70, 103, 177, 0.08), #b7c7eb);
+}
+
+.results-separator::after {
+  background: linear-gradient(90deg, #b7c7eb, rgba(70, 103, 177, 0.08));
 }
 
 .upload-dropzone {
