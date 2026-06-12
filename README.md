@@ -2,7 +2,7 @@
 
 A starter UI for the Trimble Multi-Vehicle Routing API.
 
-## Solve API console
+## MVRO Console
 
 The current app focuses on `POST /routingoptimization/v2/solve` from the
 provided OpenAPI collection definition. It includes:

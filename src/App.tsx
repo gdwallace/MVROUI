@@ -1038,7 +1038,7 @@ function App() {
       <section className="hero">
         <div>
           <p className="eyebrow">OpenAPI-driven starter</p>
-          <h1>Solve API console</h1>
+          <h1>MVRO Console</h1>
           <p className="hero-copy">{SOLVE_API.description}</p>
         </div>
         <div className="endpoint-card" aria-label="Solve endpoint details">
