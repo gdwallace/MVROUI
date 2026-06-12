@@ -770,34 +770,6 @@ function App() {
         </div>
 
         <aside className="sidecar">
-          <section className="panel sticky-panel muted-panel">
-            <p className="eyebrow">Expected shape</p>
-            <h2>Uploaded JSON should match Solve</h2>
-            <p className="hint">
-              The OpenAPI definition describes the Solve body as an async request
-              plus a problem payload.
-            </p>
-            <pre className="schema-snippet">
-{`{
-  "notificationOptions": {
-    "subscriptions": [{ "type": "poll" }]
-  },
-  "request": {
-    "unloadedStops": [],
-    "availableRoutes": [],
-    "routes": [],
-    "config": {
-      "solution": {
-        "dispatchDate": "2026-06-11",
-        "distanceUnits": "miles"
-      }
-    },
-    "resourceSchedules": []
-  }
-}`}
-            </pre>
-          </section>
-
           <ResponsePanel error={error} result={result} />
         </aside>
       </form>
