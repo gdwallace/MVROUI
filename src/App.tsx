@@ -20,6 +20,7 @@ type UploadedRequest = {
 };
 
 type RouteTableRow = {
+  routeSort: number;
   routeKey: string;
   routeId: string;
   legs: number;
@@ -32,6 +33,9 @@ type RouteTableRow = {
 };
 
 type StopTableRow = {
+  routeSort: number;
+  legSort: number;
+  sequenceSort: number;
   routeKey: string;
   routeId: string;
   leg: string;
@@ -284,6 +288,37 @@ const countStops = (route: Record<string, unknown>) => {
   return Array.isArray(route.stops) ? route.stops.length : 0;
 };
 
+const toSortNumber = (value: unknown, fallback: number) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const exact = Number(value);
+    if (Number.isFinite(exact)) {
+      return exact;
+    }
+
+    const match = value.match(/\d+/);
+    if (match) {
+      return Number(match[0]);
+    }
+  }
+
+  return fallback;
+};
+
+const compareRouteRows = (left: RouteTableRow, right: RouteTableRow) =>
+  left.routeSort - right.routeSort ||
+  left.routeId.localeCompare(right.routeId) ||
+  left.routeKey.localeCompare(right.routeKey);
+
+const compareStopRows = (left: StopTableRow, right: StopTableRow) =>
+  left.routeSort - right.routeSort ||
+  left.legSort - right.legSort ||
+  left.sequenceSort - right.sequenceSort ||
+  left.stopKey.localeCompare(right.stopKey);
+
 const buildSolutionTables = (body: unknown): SolutionTableData | null => {
   const solution = findSolutionRecord(body);
   const routes = Array.isArray(solution?.routes) ? solution.routes : null;
@@ -296,14 +331,19 @@ const buildSolutionTables = (body: unknown): SolutionTableData | null => {
   }
 
   const routeRows =
-    routes?.map((route) => {
+    routes?.map((route, routeIndex) => {
       const routeRecord = asRecord(route) ?? {};
       const plan = asRecord(routeRecord.plan);
       const statistics = asRecord(plan?.statistics);
       const costs = asRecord(statistics?.costs);
       const legs = Array.isArray(routeRecord.legs) ? routeRecord.legs : [];
+      const routeSort = toSortNumber(
+        routeRecord.routeId,
+        toSortNumber(routeRecord.key ?? routeRecord.internalKey, routeIndex),
+      );
 
       return {
+        routeSort,
         routeKey: formatCell(routeRecord.key ?? routeRecord.internalKey),
         routeId: formatCell(routeRecord.routeId),
         legs: legs.length,
@@ -314,13 +354,17 @@ const buildSolutionTables = (body: unknown): SolutionTableData | null => {
         cost: formatCell(readNumber(costs, "total")),
         violations: collectViolations(plan?.violations),
       };
-    }) ?? [];
+    }).sort(compareRouteRows) ?? [];
 
   const stopRows =
-    routes?.flatMap((route) => {
+    routes?.flatMap((route, routeIndex) => {
       const routeRecord = asRecord(route) ?? {};
       const routeKey = formatCell(routeRecord.key ?? routeRecord.internalKey);
       const routeId = formatCell(routeRecord.routeId);
+      const routeSort = toSortNumber(
+        routeRecord.routeId,
+        toSortNumber(routeRecord.key ?? routeRecord.internalKey, routeIndex),
+      );
       const legs = Array.isArray(routeRecord.legs) ? routeRecord.legs : [];
       const routeStops = Array.isArray(routeRecord.stops) ? routeRecord.stops : [];
       const stopGroups =
@@ -338,12 +382,17 @@ const buildSolutionTables = (body: unknown): SolutionTableData | null => {
         group.stops.map((stop) => {
           const stopRecord = asRecord(stop) ?? {};
           const plan = asRecord(stopRecord.plan);
+          const legValue = stopRecord.leg ?? group.leg;
+          const sequenceValue = stopRecord.sequence;
 
           return {
+            routeSort,
+            legSort: toSortNumber(legValue, 0),
+            sequenceSort: toSortNumber(sequenceValue, 0),
             routeKey,
             routeId,
-            leg: formatCell(stopRecord.leg ?? group.leg),
-            sequence: formatCell(stopRecord.sequence),
+            leg: formatCell(legValue),
+            sequence: formatCell(sequenceValue),
             stopKey: formatCell(stopRecord.key ?? stopRecord.internalKey),
             orders: collectOrders(stopRecord.orders),
             arrival: formatDateTime(plan?.arrival),
@@ -355,7 +404,7 @@ const buildSolutionTables = (body: unknown): SolutionTableData | null => {
           };
         }),
       );
-    }) ?? [];
+    }).sort(compareStopRows) ?? [];
 
   const unloadedStopRows =
     unloadedStops?.map((stop) => {
