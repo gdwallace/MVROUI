@@ -64,9 +64,9 @@ const SOLVE_API = {
   method: "POST",
   operationId: "Solve",
   auth: "Authorization header",
-  acceptedResponse: "200 OK returns a Solution; 202 Accepted returns { id, resourceUrl }",
+  acceptedResponse: "200 OK returns a Solution for the result tables",
   description:
-    "Upload a prepared Solve request JSON file, review or edit the body, and send it to the Solve endpoint. A 200 OK response can populate the result tables directly, while a 202 Accepted response returns an async operation token.",
+    "Upload a prepared Solve request JSON file, review or edit the body, and send it to the Solve endpoint. A 200 OK response should include the route and stop information used to populate the result tables.",
 };
 
 const createSamplePayload = () => ({
@@ -91,6 +91,38 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 const asRecord = (value: unknown) => (isRecord(value) ? value : null);
+
+const findSolutionRecord = (body: unknown) => {
+  const record = asRecord(body);
+
+  if (!record) {
+    return null;
+  }
+
+  if (Array.isArray(record.routes) || Array.isArray(record.unloadedStops)) {
+    return record;
+  }
+
+  const nestedSolution = asRecord(record.solution);
+  if (
+    nestedSolution &&
+    (Array.isArray(nestedSolution.routes) ||
+      Array.isArray(nestedSolution.unloadedStops))
+  ) {
+    return nestedSolution;
+  }
+
+  const nestedResponse = asRecord(record.response);
+  if (
+    nestedResponse &&
+    (Array.isArray(nestedResponse.routes) ||
+      Array.isArray(nestedResponse.unloadedStops))
+  ) {
+    return nestedResponse;
+  }
+
+  return record;
+};
 
 const readNumber = (record: Record<string, unknown> | null, key: string) => {
   const value = record?.[key];
@@ -165,7 +197,7 @@ const countStops = (route: Record<string, unknown>) => {
 };
 
 const buildSolutionTables = (body: unknown): SolutionTableData | null => {
-  const solution = asRecord(body);
+  const solution = findSolutionRecord(body);
   const routes = Array.isArray(solution?.routes) ? solution.routes : null;
   const unloadedStops = Array.isArray(solution?.unloadedStops)
     ? solution.unloadedStops
@@ -443,7 +475,7 @@ function App() {
         : await response.text();
 
       setResult({
-        ok: response.ok,
+        ok: response.status === 200,
         status: response.status,
         statusText: response.statusText,
         elapsedMs: Math.round(performance.now() - startedAt),
@@ -693,8 +725,7 @@ function ResponsePanel({
         <h2>Waiting for a request</h2>
         <p className="hint">
           A 200 OK Solve response should render the returned routes, route stops,
-          and unloaded stops in tables. A 202 Accepted response should return a
-          token and resource URL that can be polled for the eventual Solution.
+          and unloaded stops in tables.
         </p>
       </section>
     );
@@ -729,8 +760,17 @@ function ResponsePanel({
         </div>
         <span className="badge">{result.elapsedMs} ms</span>
       </div>
-      <ResponseSummary body={result.body} />
-      <SolutionTables body={result.body} />
+      {result.status === 200 ? (
+        <>
+          <ResponseSummary body={result.body} />
+          <SolutionTables body={result.body} />
+        </>
+      ) : (
+        <p className="error-text">
+          The Solve result tables require a 200 OK response containing the
+          solution JSON.
+        </p>
+      )}
       <pre className="response-body">{stringify(result.body)}</pre>
     </section>
   );
@@ -741,26 +781,11 @@ function ResponseSummary({ body }: { body: unknown }) {
     return null;
   }
 
-  const record = body as Record<string, unknown>;
-  const routes = Array.isArray(record.routes) ? record.routes : null;
-  const unloadedStops = Array.isArray(record.unloadedStops)
-    ? record.unloadedStops
+  const solution = findSolutionRecord(body);
+  const routes = Array.isArray(solution?.routes) ? solution.routes : null;
+  const unloadedStops = Array.isArray(solution?.unloadedStops)
+    ? solution.unloadedStops
     : null;
-
-  if (typeof record.id === "string" || typeof record.resourceUrl === "string") {
-    return (
-      <div className="summary-grid">
-        <div>
-          <span>Operation ID</span>
-          <strong>{String(record.id ?? "Not returned")}</strong>
-        </div>
-        <div>
-          <span>Resource URL</span>
-          <strong>{String(record.resourceUrl ?? "Not returned")}</strong>
-        </div>
-      </div>
-    );
-  }
 
   if (routes || unloadedStops) {
     return (
