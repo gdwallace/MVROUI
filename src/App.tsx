@@ -129,20 +129,6 @@ const hasSolutionFields = (value: unknown) => {
   );
 };
 
-const hasSuggestionFields = (value: unknown) => {
-  if (Array.isArray(value)) {
-    return value.some((item) => hasSuggestionFields(item));
-  }
-
-  const record = asRecord(value);
-  return Boolean(
-    record &&
-      (Array.isArray(record.candidates) ||
-        Array.isArray(record.suggestions) ||
-        Array.isArray(record.results)),
-  );
-};
-
 const findSolutionRecord = (body: unknown) => {
   const queue = [body];
   const visited = new Set<unknown>();
