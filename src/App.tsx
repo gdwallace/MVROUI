@@ -751,6 +751,7 @@ function App() {
     null,
   );
   const [copyLabel, setCopyLabel] = useState("Copy JSON");
+  const [isRequestJsonVisible, setIsRequestJsonVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
@@ -1172,38 +1173,62 @@ function App() {
                 <button
                   className="ghost"
                   type="button"
-                  onClick={copyPayload}
-                  disabled={!payloadText}
+                  onClick={() =>
+                    setIsRequestJsonVisible((current) => !current)
+                  }
                 >
-                  {copyLabel}
+                  {isRequestJsonVisible ? "Hide JSON" : "Show JSON"}
                 </button>
-                <button
-                  className="ghost"
-                  type="button"
-                  onClick={clearPayload}
-                  disabled={!payloadText}
-                >
-                  Clear
-                </button>
+                {isRequestJsonVisible && (
+                  <>
+                    <button
+                      className="ghost"
+                      type="button"
+                      onClick={copyPayload}
+                      disabled={!payloadText}
+                    >
+                      {copyLabel}
+                    </button>
+                    <button
+                      className="ghost"
+                      type="button"
+                      onClick={clearPayload}
+                      disabled={!payloadText}
+                    >
+                      Clear
+                    </button>
+                  </>
+                )}
               </div>
             </div>
-            <p className="hint">
-              You can paste a request JSON body directly here if you do not want
-              to use a file. The app sends this JSON exactly as shown.
-            </p>
-            <textarea
-              className={payloadParseError ? "json-editor invalid" : "json-editor"}
-              value={payloadText}
-              onChange={(event) => {
-                setPayloadText(event.target.value);
-                setUploadedRequest(null);
-              }}
-              placeholder={stringify(createSamplePayload())}
-              spellCheck={false}
-              aria-label="Solve request JSON"
-            />
-            {payloadParseError && (
-              <p className="error-text">JSON status: {payloadParseError}</p>
+            {isRequestJsonVisible ? (
+              <>
+                <p className="hint">
+                  You can paste a request JSON body directly here if you do not
+                  want to use a file. The app sends this JSON exactly as shown.
+                </p>
+                <textarea
+                  className={
+                    payloadParseError ? "json-editor invalid" : "json-editor"
+                  }
+                  value={payloadText}
+                  onChange={(event) => {
+                    setPayloadText(event.target.value);
+                    setUploadedRequest(null);
+                  }}
+                  placeholder={stringify(createSamplePayload())}
+                  spellCheck={false}
+                  aria-label="Solve request JSON"
+                />
+                {payloadParseError && (
+                  <p className="error-text">JSON status: {payloadParseError}</p>
+                )}
+              </>
+            ) : (
+              <p className="hint">
+                Request JSON is hidden. Use Show JSON if you need to review or
+                edit the uploaded body.
+              </p>
             )}
             <button
               className="primary"
@@ -1312,7 +1337,7 @@ function ResponsePanel({
           solution JSON.
         </p>
       )}
-      <pre className="response-body">{stringify(result.body)}</pre>
+      <RawJsonToggle label="Solve response JSON" value={result.body} />
     </section>
   );
 }
@@ -1489,10 +1514,27 @@ function SuggestAction({
               Suggest candidates require a final 200 OK response.
             </p>
           )}
-          <pre className="response-body">{stringify(suggestResult.body)}</pre>
+          <RawJsonToggle label="Suggest response JSON" value={suggestResult.body} />
         </div>
       )}
     </section>
+  );
+}
+
+function RawJsonToggle({ label, value }: { label: string; value: unknown }) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  return (
+    <div className="raw-json-toggle">
+      <button
+        className="ghost"
+        type="button"
+        onClick={() => setIsVisible((current) => !current)}
+      >
+        {isVisible ? `Hide ${label}` : `Show ${label}`}
+      </button>
+      {isVisible && <pre className="response-body">{stringify(value)}</pre>}
+    </div>
   );
 }
 

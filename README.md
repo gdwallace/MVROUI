@@ -10,7 +10,7 @@ provided OpenAPI collection definition. It includes:
 - API target and API key input sent as the `Authorization` header
 - Upload support for a prepared Solve request JSON file
 - Drag-and-drop or browse-based JSON loading
-- Editable JSON review before sending the request
+- Optional, hidden-by-default JSON review before sending the request
 - Request summaries for stops, routes, and notification subscriptions
 - Response handling for `200 OK` solution JSON
 - Automatic polling when the API initially returns a polling URL
@@ -18,6 +18,7 @@ provided OpenAPI collection definition. It includes:
   routes, and unloaded stops
 - Suggest API action for unloaded stops returned by Solve
 - Suggestion candidate table for possible routes, legs, and sequences
+- Hidden-by-default raw JSON sections for Solve and Suggest responses
 
 ## Development
 
